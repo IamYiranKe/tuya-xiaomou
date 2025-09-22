@@ -20,9 +20,11 @@
 #include "tuya_ai_protocol.h"
 #include "tuya_ai_client.h"
 #include "tuya_ai_event.h"
+#if defined(ENABLE_AI_MONITOR) && (ENABLE_AI_MONITOR == 1)
+#include "tuya_ai_monitor.h"
+#endif
 
 #include "ai_audio.h"
-#include "ai_audio_debug.h"
 
 /***********************************************************
 ************************macro define************************
@@ -317,7 +319,7 @@ static OPERATE_RET __ai_agent_txt_recv(AI_BIZ_ATTR_INFO_T *attr, AI_BIZ_HEAD_INF
 static OPERATE_RET __ai_agent_event_recv(AI_EVENT_TYPE type, AI_SESSION_ID session_id, AI_EVENT_ID event_id,
                                          uint8_t *attr, uint32_t attr_len)
 {
-    PR_DEBUG("recv event type:%d, session_id:%s, event_id:%s", type, session_id, event_id);
+    PR_DEBUG("recv event type:%d, session_id:%s, event_id:%s, attr_len: %d", type, session_id, event_id, attr_len);
 
     // event type: 0-chat start, 1-chat stop, 2-data finish
     if (type == AI_EVENT_START) {
@@ -458,8 +460,10 @@ static OPERATE_RET __ai_agent_init(void *data)
 {
     PR_DEBUG("%s...", __func__);
 
-#if defined(AI_AUDIO_DEBUG) && (AI_AUDIO_DEBUG == 1)
-    ai_audio_debug_init();
+#if defined(ENABLE_AI_MONITOR) && (ENABLE_AI_MONITOR == 1)
+    OPERATE_RET rt = OPRT_OK;
+    ai_monitor_config_t monitor_cfg = AI_MONITOR_CFG_DEFAULT;
+    TUYA_CALL_ERR_RETURN(tuya_ai_monitor_init(&monitor_cfg));
 #endif
 
     tal_event_subscribe(EVENT_AI_SESSION_NEW, "ai_session_new", __ai_agent_session_new, SUBSCRIBE_TYPE_NORMAL);
@@ -499,10 +503,6 @@ OPERATE_RET ai_audio_agent_upload_start(uint8_t enable_vad)
 {
     OPERATE_RET rt = OPRT_OK;
 
-#if defined(AI_AUDIO_DEBUG) && (AI_AUDIO_DEBUG == 1)
-    ai_audio_debug_start();
-#endif
-
     PR_DEBUG("tuya ai upload start...");
 
     // send start event
@@ -525,6 +525,10 @@ OPERATE_RET ai_audio_agent_upload_start(uint8_t enable_vad)
     uint8_t *out = NULL;
     uint32_t out_len = 0;
     tuya_pack_user_attrs(attr, CNTSOF(attr), &out, &out_len);
+    if (out == NULL || out_len == 0) {
+        PR_ERR("pack user attrs failed");
+        return OPRT_MALLOC_FAILED;
+    }
     rt = tuya_ai_event_start(sg_ai.session_id, sg_ai.event_id, out, out_len);
     tal_free(out);
     if (rt) {
@@ -547,10 +551,6 @@ OPERATE_RET ai_audio_agent_upload_start(uint8_t enable_vad)
 OPERATE_RET ai_audio_agent_upload_data(uint8_t *data, uint32_t len)
 {
     OPERATE_RET rt = OPRT_OK;
-
-#if defined(AI_AUDIO_DEBUG) && (AI_AUDIO_DEBUG == 1)
-    ai_audio_debug_data((char *)data, len);
-#endif
 
     // send data use tuya_ai_send_biz_pkt, pcm
     AI_BIZ_ATTR_INFO_T attr = {
@@ -603,10 +603,6 @@ OPERATE_RET ai_audio_agent_upload_stop(void)
     OPERATE_RET rt = OPRT_OK;
 
     PR_DEBUG("tuya ai upload stop...");
-
-#if defined(AI_AUDIO_DEBUG) && (AI_AUDIO_DEBUG == 1)
-    ai_audio_debug_stop();
-#endif
 
     TUYA_CALL_ERR_RETURN(ai_audio_agent_upload_data(NULL, 0));
 
